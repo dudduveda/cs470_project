@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Users & Restaurants Manager</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 { color: #667eea; margin-bottom: 5px; }
+        .subtitle { color: #666; font-size: 14px; }
+        .screen { display: none; }
+        .screen.active { display: block; }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .card h2 { color: #333; margin-bottom: 20px; font-size: 24px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-size: 14px; font-weight: 500; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+        button:hover { background: #5568d3; }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .btn-secondary:hover { background: #5a6268; }
+        .btn-small { padding: 5px 10px; font-size: 12px; margin-right: 5px; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .alert {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .alert-success { background: #c6f6d5; color: #22543d; border: 1px solid #68d391; }
+        .alert-error { background: #fed7d7; color: #9b2c2c; border: 1px solid #fc8181; }
+        
+        /* Restaurant Selection */
+        .restaurant-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .restaurant-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .restaurant-card:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .restaurant-card.selected {
+            border-color: #667eea;
+            background: #f0f3ff;
+        }
+        .restaurant-card h3 {
+            color: #333;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        .restaurant-card p {
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+        .cuisine-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #e0e7ff;
+            color: #4c51bf;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+        .price-indicator { 
+            color: #28a745;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .rating-stars {
+            color: #ffc107;
+            font-size: 14px;
+        }
+        
+        /* User List Screen */
+        .user-list-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+        }
+        .user-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        .user-card:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .user-card.selected {
+            border-color: #667eea;
+            background: #f0f3ff;
+        }
+        .user-card h3 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+        .user-card p {
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+        .selection-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid #667eea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            background: white;
+        }
+        .user-card.selected .selection-indicator {
+            background: #667eea;
+            color: white;
+        }
+        .preferences-list {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .pref-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #e0e7ff;
+            color: #4c51bf;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        .selected-count {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        .action-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>👥🍽️ Users & Restaurants Manager</h1>
+                <p class="subtitle">Full Stack CRUD Application</p>
+            </div>
+            <div>
+                <button id="navBtn" class="btn-secondary">View All Users</button>
+            </div>
+        </header>
+
+        <!-- Screen 1: Create User with Restaurant Preferences -->
+        <div id="createScreen" class="screen active">
+            <div class="card">
+                <h2>👤 Create New User</h2>
+                <div id="createAlert"></div>
+                
+                <form id="userForm">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="username" required placeholder="Enter username">
+                    </div>
+
+                    <h3 style="color: #333; margin: 30px 0 15px 0; font-size: 18px;">Select Restaurant Preferences</h3>
+                    <p style="color: #666; margin-bottom: 20px; font-size: 14px;">Click on restaurants to add them to this user's preferences</p>
+                    
+                    <div id="restaurantGrid" class="restaurant-grid">
+                        <div class="empty-state">Loading restaurants...</div>
+                    </div>
+
+                    <div style="margin-top: 30px;">
+                        <button type="submit">Create User with Preferences</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Screen 2: User List with Multi-Selection -->
+        <div id="listScreen" class="screen">
+            <div class="card">
+                <h2>👥 All Users</h2>
+                <div id="listAlert"></div>
+
+                <div class="action-bar">
+                    <button onclick="selectAllUsers()">Select All</button>
+                    <button onclick="deselectAllUsers()" class="btn-secondary">Deselect All</button>
+                    <button onclick="deleteSelectedUsers()" class="btn-danger">Delete Selected</button>
+                </div>
+
+                <div id="selectedCount" class="selected-count" style="display: none;">
+                    0 users selected
+                </div>
+
+                <div id="userListGrid" class="user-list-grid">
+                    <div class="empty-state">Loading users...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api';
+        let selectedRestaurants = new Set();
+        let selectedUsers = new Set();
+        let currentScreen = 'create';
+        let allRestaurants = [];
+        let allUsers = [];
+
+        // Helper functions
+        function showAlert(elementId, message, type) {
+            const alertDiv = document.getElementById(elementId);
+            alertDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            setTimeout(() => alertDiv.innerHTML = '', 3000);
+        }
+
+        function getPriceSymbol(price) {
+            return '$'.repeat(price);
+        }
+
+        function getStars(rating) {
+            const fullStars = Math.floor(rating);
+            const halfStar = rating % 1 >= 0.5 ? '½' : '';
+            return '⭐'.repeat(fullStars) + halfStar;
+        }
+
+        // Navigation
+        function switchScreen() {
+            if (currentScreen === 'create') {
+                currentScreen = 'list';
+                document.getElementById('createScreen').classList.remove('active');
+                document.getElementById('listScreen').classList.add('active');
+                document.getElementById('navBtn').textContent = 'Create New User';
+                loadUsers();
+            } else {
+                currentScreen = 'create';
+                document.getElementById('listScreen').classList.remove('active');
+                document.getElementById('createScreen').classList.add('active');
+                document.getElementById('navBtn').textContent = 'View All Users';
+                selectedRestaurants.clear();
+                renderRestaurants();
+            }
+        }
+
+        document.getElementById('navBtn').addEventListener('click', switchScreen);
+
+        // ==================== Restaurants ====================
+
+        async function loadRestaurants() {
+            try {
+                const res = await fetch(`${API_URL}/restaurants`);
+                allRestaurants = await res.json();
+                renderRestaurants();
+            } catch (err) {
+                console.error('Error loading restaurants:', err);
+                showAlert('createAlert', 'Error loading restaurants', 'error');
+            }
+        }
+
+        function renderRestaurants() {
+            const grid = document.getElementById('restaurantGrid');
+            
+            if (allRestaurants.length === 0) {
+                grid.innerHTML = '<div class="empty-state">No restaurants available. Add some first!</div>';
+                return;
+            }
+
+            grid.innerHTML = allRestaurants.map(rest => `
+                <div class="restaurant-card ${selectedRestaurants.has(rest.id) ? 'selected' : ''}" 
+                     onclick="toggleRestaurant(${rest.id})">
+                    <h3>${rest.name}</h3>
+                    <p>
+                        <span class="cuisine-badge">${rest.cuisine}</span>
+                    </p>
+                    <p>
+                        <span class="price-indicator">${getPriceSymbol(rest.price)}</span>
+                        <span class="rating-stars">${getStars(rest.rating)} ${rest.rating}</span>
+                    </p>
+                </div>
+            `).join('');
+        }
+
+        function toggleRestaurant(id) {
+            if (selectedRestaurants.has(id)) {
+                selectedRestaurants.delete(id);
+            } else {
+                selectedRestaurants.add(id);
+            }
+            renderRestaurants();
+        }
+
+        // ==================== Users ====================
+
+        async function createUser(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+
+            if (selectedRestaurants.size === 0) {
+                showAlert('createAlert', 'Please select at least one restaurant preference', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        username,
+                        preferences: Array.from(selectedRestaurants)
+                    })
+                });
+
+                if (res.ok) {
+                    showAlert('createAlert', `User created with ${selectedRestaurants.size} restaurant preferences!`, 'success');
+                    document.getElementById('userForm').reset();
+                    selectedRestaurants.clear();
+                    renderRestaurants();
+                } else {
+                    const error = await res.json();
+                    showAlert('createAlert', error.error || 'Error creating user', 'error');
+                }
+            } catch (err) {
+                showAlert('createAlert', 'Error creating user', 'error');
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const res = await fetch(`${API_URL}/users`);
+                allUsers = await res.json();
+                renderUsers();
+            } catch (err) {
+                console.error('Error loading users:', err);
+                showAlert('listAlert', 'Error loading users', 'error');
+            }
+        }
+
+        function renderUsers() {
+            const grid = document.getElementById('userListGrid');
+            
+            if (allUsers.length === 0) {
+                grid.innerHTML = '<div class="empty-state">No users yet. Create some first!</div>';
+                return;
+            }
+
+            grid.innerHTML = allUsers.map(user => {
+                const userRestaurants = allRestaurants.filter(r => 
+                    user.preferences && user.preferences.includes(r.id)
+                );
+                
+                return `
+                    <div class="user-card ${selectedUsers.has(user.id) ? 'selected' : ''}" 
+                         onclick="toggleUser(${user.id})">
+                        <div class="selection-indicator">
+                            ${selectedUsers.has(user.id) ? '✓' : ''}
+                        </div>
+                        <h3>${user.username}</h3>
+                        <p>Created: ${new Date(user.created_at).toLocaleDateString()}</p>
+                        ${userRestaurants.length > 0 ? `
+                            <div class="preferences-list">
+                                ${userRestaurants.map(r => 
+                                    `<span class="pref-tag">${r.name}</span>`
+                                ).join('')}
+                            </div>
+                        ` : '<p style="color: #999; margin-top: 10px;">No preferences</p>'}
+                    </div>
+                `;
+            }).join('');
+
+            updateSelectedCount();
+        }
+
+        function toggleUser(id) {
+            if (selectedUsers.has(id)) {
+                selectedUsers.delete(id);
+            } else {
+                selectedUsers.add(id);
+            }
+            renderUsers();
+        }
+
+        function selectAllUsers() {
+            allUsers.forEach(user => selectedUsers.add(user.id));
+            renderUsers();
+        }
+
+        function deselectAllUsers() {
+            selectedUsers.clear();
+            renderUsers();
+        }
+
+        function updateSelectedCount() {
+            const countDiv = document.getElementById('selectedCount');
+            if (selectedUsers.size > 0) {
+                countDiv.style.display = 'inline-block';
+                countDiv.textContent = `${selectedUsers.size} user${selectedUsers.size > 1 ? 's' : ''} selected`;
+            } else {
+                countDiv.style.display = 'none';
+            }
+        }
+
+        async function deleteSelectedUsers() {
+            if (selectedUsers.size === 0) {
+                showAlert('listAlert', 'No users selected', 'error');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete ${selectedUsers.size} user(s)?`)) {
+                return;
+            }
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    const res = await fetch(`${API_URL}/users/${userId}`, {
+                        method: 'DELETE'
+                    });
+                    if (res.ok) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (err) {
+                    failCount++;
+                }
+            }
+
+            if (successCount > 0) {
+                showAlert('listAlert', `Successfully deleted ${successCount} user(s)`, 'success');
+            }
+            if (failCount > 0) {
+                showAlert('listAlert', `Failed to delete ${failCount} user(s)`, 'error');
+            }
+
+            selectedUsers.clear();
+            loadUsers();
+        }
+
+        // Event listeners
+        document.getElementById('userForm').addEventListener('submit', createUser);
+
+        // Initialize
+        loadRestaurants();
+    </script>
+</body>
+</html>
