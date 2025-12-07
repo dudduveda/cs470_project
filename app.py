@@ -11,7 +11,7 @@ import json
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from restaurants import initial_restaurants
 import math
 app = Flask(__name__)
@@ -28,9 +28,10 @@ class Util(Enum):
     total_utility_maxing = 1
     nash_welfare = 2
 
+
 # toggle between these
 ns_value = 1.2
-utility_scheme = Util.min_utility_maxing
+utility_scheme = Util.total_utility_maxing
 
 # ==================== Pydantic Models ====================
 
@@ -67,26 +68,27 @@ class RestaurantUpdate(BaseModel):
     cuisine: Optional[str] = Field(None, min_length=1, max_length=50)
     price: Optional[int] = Field(None, ge=1, le=3)
 
+
 class DayOfRating(BaseModel):
     rating: float = Field(..., ge=1.0, le=10.0)
     restaurant_id: Optional[int] = None
     cuisine: Optional[str] = None
-
+    
     @field_validator("rating")
     @classmethod
     def round_rating(cls, v):
         return round(v, 1)
-
-    @field_validator("restaurant_id", "cuisine", mode="after")
-    @classmethod
-    def validate_choice(cls, _, values):
-        r = values.get("restaurant_id")
-        c = values.get("cuisine")
+    
+    @model_validator(mode="after")
+    def validate_choice(self):
+        r = self.restaurant_id
+        c = self.cuisine
+        
         if not r and not c:
             raise ValueError("Must include restaurant_id OR cuisine")
         if r and c:
             raise ValueError("Cannot include both restaurant_id AND cuisine")
-        return values
+        return self
 
 
 class DayOfRatingsBulk(BaseModel):
@@ -96,8 +98,6 @@ class DayOfRatingsBulk(BaseModel):
     @field_validator("ratings")
     @classmethod
     def validate_max_three(cls, v):
-        if len(v) == 0:
-            raise ValueError("Must include at least 1 rating")
         if len(v) > 3:
             raise ValueError("Maximum of 3 ratings allowed")
         return v
@@ -458,87 +458,105 @@ def dayofrestupdate(rating):
     return 2 / (1 + math.exp(-2 * (rating - 5.5)))
 def dayofcuisineupdate(rating):
     return 2 / (1 + math.exp(-1 * (rating - 5.5)))
+def user_utility(dayof):
+    userId = dayof.user_id
+    dayofratings = dayof.ratings
+    dayofrests = {x.restaurant_id: x.rating for x in dayofratings if x.restaurant_id is not None}
+    dayofcuisines = {x.cuisine: x.rating for x in dayofratings if x.cuisine is not None}
 
-# def user_utility(dayof):
-#     #max_utility tbd
-#     userId = dayof.user_id
-#     dayofratings = dayof.ratings
-#     dayofrests = {x.restaurant_id: x.rating for x in dayofratings if x.restaurant_id is not None}
-#     dayofcuisines = {x.cuisine: x.rating for x in dayofratings if x.cuisine is not None}
-#     if userId is None:
-#         return [max_utility for i in range(len(r_list))]
-#     with get_db() as conn:
-#         rests = conn.execute('''
-#             SELECT restaurant_id, user_id, rating 
-#             FROM user_preferences
-#             WHERE user_id = ?
-#             ORDER BY restaurant_id ASC
-#         ''',
-#         (userId)
-#         ).fetchall()
-#         cuisines = conn.execute('''
-#             SELECT cuisine, rating 
-#             FROM user_cuisine_preferences
-#             WHERE user_id = ?
-#             ORDER BY cuisine ASC
-#         ''', 
-#         (userId) 
-#         ).fetchall()
-#         cuisines = {cuisine: rating for (cuisine, rating) in cuisines}
-#         output = []
-#         restpointer = 0
-#         for i, rest in enumerate(r_list):
-#             value = None
-#             if i > rests[restpointer]["restaurant_id"]:
-#                 value = max(cuisines.get(x, 0.5) for x in rest[1].split(","))
-#                 output.append(value)
-#             elif i == rests[restpointer]["restaurant_id"]: 
-#                 value = rests[restpointer]["rating"]
-#                 restpointer += 1
-#             cuisinebenefit = max()
-
-#             value *= dayofrests.get(, 1)
-# @app.route('/api/matching', methods=["POST"])
-# def matching():
-#     try:
-#         data = Matching(**request.json)
-#     except Exception as e:
-#         return jsonify({"error": f"Validation error: {str(e)}"}), 400
-#     utilities = []
-#     for dayof in data.user_ratings:
-#         utilities.append(user_utility(dayof))
-#     # min utility maximizing
-#     if utility_scheme == Util.min_utility_maxing:
-#         ans = []
-#         for i in range(len(r_list)):
-#             worst = max_utility
-#             for utility in utilities:
-#                 worst = min(worst, utility[i])
-#             ans.append((i, worst))
-#         ans.sort(key=lambda x: x[1],reverse=True)
-#         return [i for (i, v) in ans]
-#     # total utility maximizing
-#     elif utility_scheme == Util.total_utility_maxing:
-#         ans = []
-#         for i in range(len(r_list)):
-#             total = 0
-#             for utility in utilities:
-#                 total += utility[i]
-#             ans.append((i, total))
-#         ans.sort(key=lambda x: x[1],reverse=True)
-#         return [i for (i, v) in ans]   
-#     elif utility_scheme == Util.nash_welfare:
-#         ans = []
-#         for i in range(len(r_list)):
-#             total = 1
-#             for utility in utilities:
-#                 total *= utility[i]
-#             ans.append((i, total))
-#         ans.sort(key=lambda x: x[1],reverse=True)
-#         return [i for (i, v) in ans]   
+    if userId is None:
+        return [max_utility for i in range(len(r_list))]
     
-#     print("something bad happened, utility scheme inval")
-#     return []
+    with get_db() as conn:
+        rests = conn.execute('''
+            SELECT restaurant_id, rating 
+            FROM user_preferences
+            WHERE user_id = ?
+            ORDER BY restaurant_id ASC
+        ''',
+        (userId,)
+        ).fetchall()
+        
+        cuisines = conn.execute('''
+            SELECT cuisine, rating 
+            FROM user_cuisine_preferences
+            WHERE user_id = ?
+            ORDER BY cuisine ASC
+        ''', 
+        (userId,) 
+        ).fetchall()
+        
+        # Convert to dict for easier lookup
+        rests_dict = {r['restaurant_id']: r['rating'] for r in rests}
+        cuisines_dict = {c['cuisine']: c['rating'] for c in cuisines}
+        
+        output = []
+        for i, rest in enumerate(r_list):
+            # Get base rating (either from restaurant pref or cuisine pref)
+            if i in rests_dict:
+                value = rests_dict[i]
+            else:
+                # Use max cuisine rating if restaurant not rated
+                cuisine_ratings = [cuisines_dict.get(c.strip(), 5.0) for c in rest[1].split(",")]
+                value = max(cuisine_ratings) if cuisine_ratings else 5.0
+            
+            # Apply day-of restaurant modifier if exists
+            if i in dayofrests:
+                value *= dayofrestupdate(dayofrests[i])
+            
+            # Apply day-of cuisine modifier if exists
+            for cuisine in rest[1].split(","):
+                cuisine = cuisine.strip()
+                if cuisine in dayofcuisines:
+                    value *= dayofcuisineupdate(dayofcuisines[cuisine])
+            
+            output.append(value * ns_value)
+    
+    return output
+
+
+@app.route('/api/matching', methods=["POST"])
+def matching():
+    try:
+        data = Matching(**request.json)
+    except Exception as e:
+        return jsonify({"error": f"Validation error: {str(e)}"}), 400
+    utilities = []
+    for dayof in data.user_ratings:
+        utilities.append(user_utility(dayof))
+    # min utility maximizing
+    if utility_scheme == Util.min_utility_maxing:
+        ans = []
+        for i in range(len(r_list)):
+            worst = max_utility
+            for utility in utilities:
+                worst = min(worst, utility[i])
+            ans.append((i, worst))
+        ans.sort(key=lambda x: x[1],reverse=True)
+    # total utility maximizing
+    elif utility_scheme == Util.total_utility_maxing:
+        ans = []
+        for i in range(len(r_list)):
+            total = 0
+            for utility in utilities:
+                total += utility[i]
+            ans.append((i, total))
+        ans.sort(key=lambda x: x[1],reverse=True)
+        # return [i for (i, v) in ans]   
+    elif utility_scheme == Util.nash_welfare:
+        ans = []
+        for i in range(len(r_list)):
+            total = 1
+            for utility in utilities:
+                total *= utility[i]
+            ans.append((i, total))
+        ans.sort(key=lambda x: x[1],reverse=True)
+        # return [i for (i, v) in ans]   
+    else:
+
+        print("something bad happened, utility scheme inval")
+        return []
+    return [(r_list[i][0], r_list[i][1], v) for (i, v) in ans]
 
 
 # ==================== Main ====================
@@ -547,21 +565,21 @@ def dayofcuisineupdate(rating):
 
 if __name__ == '__main__':
     init_db()
-    print("\n" + "="*50)
-    print("🚀 Users & Restaurants App Started!")
-    print("="*50)
-    print("\n📱 Open in browser: http://localhost:5000")
-    print("\n📡 API Endpoints:")
-    print("  GET  /api/health")
-    print("  GET  /api/users")
-    print("  POST /api/users")
-    print("  GET  /api/users/<id>")
-    print("  DELETE /api/users/<id>")
-    print("  GET  /api/restaurants")
-    print("  POST /api/restaurants")
-    print("  GET  /api/restaurants/<id>")
-    print("  PUT  /api/restaurants/<id>")
-    print("  DELETE /api/restaurants/<id>")
-    print("  GET  /api/restaurants/search?cuisine=&max_price=")
-    print("\n" + "="*50 + "\n")
+    # print("\n" + "="*50)
+    # print("🚀 Users & Restaurants App Started!")
+    # print("="*50)
+    # print("\n📱 Open in browser: http://localhost:5000")
+    # print("\n📡 API Endpoints:")
+    # print("  GET  /api/health")
+    # print("  GET  /api/users")
+    # print("  POST /api/users")
+    # print("  GET  /api/users/<id>")
+    # print("  DELETE /api/users/<id>")
+    # print("  GET  /api/restaurants")
+    # print("  POST /api/restaurants")
+    # print("  GET  /api/restaurants/<id>")
+    # print("  PUT  /api/restaurants/<id>")
+    # print("  DELETE /api/restaurants/<id>")
+    # print("  GET  /api/restaurants/search?cuisine=&max_price=")
+    # print("\n" + "="*50 + "\n")
     app.run(debug=True, port=5000)

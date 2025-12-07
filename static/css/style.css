@@ -402,3 +402,23 @@ button:disabled { background: #ccc; cursor: not-allowed; }
     font-weight: bold;
     font-size: 14px;
 }
+
+.score-high {
+    color: #28a745 !important;
+}
+
+.score-medium {
+    color: #ffc107 !important;
+}
+
+.score-low {
+    color: #dc3545 !important;
+}
+
+.match-card .match-rank {
+    transition: all 0.3s ease;
+}
+
+.match-card:hover .match-rank {
+    transform: scale(1.1);
+}

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Users & Restaurants Manager</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
 </head>
 <body>
     <div class="container">
@@ -77,6 +78,9 @@
                     <div id="selectedCount" class="selected-count" style="display: none; margin-bottom: 0;">
                         0 users selected
                     </div>
+                    <div id="matchbtn" style="display: none;">
+                        <button onclick="callMagic()" class="btn-primary">Generate Matches</button>
+                    </div>
                 </div>
 
                 <div id="userListGrid" class="user-list-grid">
@@ -123,6 +127,20 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+        <div id="matchingScreen" class="screen">
+            <div class="card">
+                <h2>🎯 Restaurant Matches</h2>
+                <div id="matchingAlert"></div>
+                
+                <!-- <div style="margin-bottom: 20px;">
+                    <button onclick="callMagic()" class="btn-primary">Generate Matches</button>
+                </div> -->
+        
+                <div id="matchingResults" class="matching-results">
+                    <div class="empty-state">Select users and click Generate Matches</div>
                 </div>
             </div>
         </div>

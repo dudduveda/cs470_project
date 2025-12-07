@@ -9,7 +9,7 @@ let allRestaurants = [];
 let allCuisines = [];
 let allUsers = [];
 let lastSelectedUser = -1;
-
+let matching = [];
 // Helper functions
 function showAlert(elementId, message, type) {
     const alertDiv = document.getElementById(elementId);
@@ -22,16 +22,28 @@ function getPriceSymbol(price) {
 }
 
 // Navigation
-function switchScreen() {
+function switchScreen(newScreen) {
+    console.log(newScreen);
+    // showAlert('createAlert', newScreen, 'error');
+
+    if (newScreen) {
+        currentScreen = 'matching';
+        document.getElementById('listScreen').classList.remove('active');
+        document.getElementById('createScreen').classList.remove('active');
+        document.getElementById('matchingScreen').classList.add('active');
+        return;
+    }
     if (currentScreen === 'create') {
         currentScreen = 'list';
         document.getElementById('createScreen').classList.remove('active');
+        document.getElementById('matchingScreen').classList.remove('active');
         document.getElementById('listScreen').classList.add('active');
         document.getElementById('navBtn').textContent = 'Create New User';
         loadUsers();
     } else {
         currentScreen = 'create';
         document.getElementById('listScreen').classList.remove('active');
+        document.getElementById('matchingScreen').classList.remove('active');
         document.getElementById('createScreen').classList.add('active');
         document.getElementById('navBtn').textContent = 'View All Users';
         restaurantRatings.clear();
@@ -45,7 +57,9 @@ function switchScreen() {
     }
 }
 
-document.getElementById('navBtn').addEventListener('click', switchScreen);
+document.getElementById('navBtn').addEventListener('click', () => switchScreen());
+// document.getElementById('match');
+
 
 // ==================== Cuisines ====================
 function extractCuisines() {
@@ -368,7 +382,13 @@ function toggleUser(id) {
         //     dayofRatings = new Map();
         // }
     }
-    // console.log(lastSelectedUser);
+    const matchbtn = document.getElementById("matchbtn");
+    if (selectedUsers.size >= 2) {
+        matchbtn.style.display = 'inline-block';
+    } else {
+        matchbtn.style.display = 'none';
+    }
+    console.log(lastSelectedUser);
     renderUsers();
     updateDayofSection();
 }
@@ -601,46 +621,160 @@ function removeDayofRating(key) {
     renderDayofSelected();
 }
 
+// async function callMagic() {
+//     if (selectedUsers.size < 2) return;
+//     const payloads = [];
+//     dayofRatingsByUser.forEach(user => {
+//         if (selectedUsers.find(u => u === user)) {
+//             payloads.push(user);
+//         }
+//     });
+//     try {
+//         const res = await fetch(`${API_URL}/matching`, {
+//             method: 'POST',
+//             headers: { 'Content-Type': 'application/json' },
+//             body: JSON.stringify(payloads)
+//         });
+
+//         const matches = await res.json();
+//         switchScreen("matching");
+//         renderMatchingList();
+
+//     } catch (err) {
+//         console.error('Error generating matches:', err);
+//         showAlert('matchingAlert', err.message || 'Error generating matches', 'error');
+//         document.getElementById('matchingResults').innerHTML = 
+//             '<div class="empty-state">Failed to generate matches. Try again.</div>';
+//     }
+// }
+
 async function callMagic() {
-    if (selectedUsers.size < 2) return;
-    const payloads = [];
-    dayofRatingsByUser.forEach(user => {
-        if (selectedUsers.find(u => u === user)) {
-            payloads.push(user);
+    if (selectedUsers.size < 2) {
+        showAlert('listAlert', 'Please select at least 2 users to generate matches', 'error');
+        return;
+    }
+    console.log(dayofRatingsByUser);
+    console.log("dayofByUser");
+    const userIds = Array.from(selectedUsers);
+    
+    // Build the user_ratings payload
+    const userRatings = userIds.map(userId => {
+        const ratings = [];
+        
+        // Check if this user has day-of ratings
+        if (dayofRatingsByUser.has(userId)) {
+            const dayofRatings = dayofRatingsByUser.get(userId);
+            
+            dayofRatings.forEach((rating, key) => {
+                if (rating.type === 'restaurant') {
+                    ratings.push({
+                        restaurant_id: rating.id,
+                        rating: rating.rating
+                    });
+                } else if (rating.type === 'cuisine') {
+                    ratings.push({
+                        cuisine: rating.id,
+                        rating: rating.rating
+                    });
+                }
+            });
         }
+        
+        // If no day-of ratings, send empty array (backend will use base preferences)
+        return {
+            user_id: userId,
+            ratings: ratings
+        };
     });
+    console.log(userIds);
+    console.log("userIds");
     try {
-        // If your API supports bulk requests:
-        const res = await fetch(`${API_URL}/day-of-ratings/bulk`, {
+        // Show loading state
+        showAlert('listAlert', 'Generating matches...', 'success');
+        
+        const res = await fetch(`${API_URL}/matching`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ratings: payloads })
+            body: JSON.stringify({ user_ratings: userRatings })
         });
 
-        // // Otherwise, send individually
-        // for (const entry of payloads) {
-        //     const res = await fetch(`${API_URL}/day-of-ratings`, {
-        //         method: 'POST',
-        //         headers: { 'Content-Type': 'application/json' },
-        //         body: JSON.stringify(entry)
-        //     });
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.error || 'Failed to generate matches');
+        }
 
-        //     if (!res.ok) {
-        //         const error = await res.json();
-        //         showAlert('dayofAlert', error.error || 'Error saving rating', 'error');
-        //         return;
-        //     }
-        // }
-
-        showAlert('dayofAlert', 'All day-of ratings saved!', 'success');
-        await loadUsers();
-        renderUsers();
-
+        matching = await res.json();
+        console.log(matching);
+        
+        // Switch to matching screen and render results
+        switchScreen('matching');
+        renderMatchingList();
+        
     } catch (err) {
-        showAlert('dayofAlert', 'Error saving ratings', 'error');
-        console.error(err);
+        console.error('Error generating matches:', err);
+        showAlert('listAlert', err.message || 'Error generating matches', 'error');
     }
 }
+
+function renderMatchingList() {
+    const container = document.getElementById('matchingResults');
+    
+    if (!matching || matching.length === 0) {
+        container.innerHTML = '<div class="empty-state">No matching restaurants found</div>';
+        console.error("this shouldn't happen, should list at least some places");
+        return;
+    }
+    const currMax = Math.max(...matching.map(restaurant => restaurant[2]));
+
+    const html = matching.map((match, index) => {
+        const restaurant = match[0];
+        
+        // const restaurant = allRestaurants.find(r => r.id === restaurantId);
+        const cuisine = match[1];
+        const rating = 10 * match[2] / currMax;
+        console.log("rating", match[2], currMax);
+        // Color coding based on rating
+        let scoreClass = 'score-high';
+        let scoreColor = '#28a745';
+        if (rating < 5) {
+            scoreClass = 'score-low';
+            scoreColor = '#dc3545';
+        } else if (rating < 7) {
+            scoreClass = 'score-medium';
+            scoreColor = '#ffc107';
+        }
+
+        return `
+            <div class="match-card">
+                <div class="match-rank" style="background: ${index < 3 ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'}">
+                    #${index + 1}
+                </div>
+                <div class="match-content">
+                    <h3>${restaurant}</h3>
+                    <div style="margin: 10px 0;">
+                        <span class="cuisine-badge">${restaurant}</span>
+                        <span class="price-indicator">${getPriceSymbol(restaurant.price)}</span>
+                    </div>
+                    <div class="match-score">
+                        <span class="score-label">Match Score:</span>
+                        <span class="score-value ${scoreClass}" style="color: ${scoreColor}">
+                            ${rating.toFixed(2)}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).filter(Boolean).join('');
+
+    if (!html) {
+        container.innerHTML = '<div class="empty-state">No valid restaurants found</div>';
+        return;
+    }
+
+    container.innerHTML = html;
+}
+
+
 
 // async function saveDayofRating(key) {
 //     if (selectedUsers.size !== 1) return;
@@ -796,16 +930,16 @@ function renderDayofSelected() {
             }
         }
     });
-    if (dayofRatings.size > 0) {
-        html += `
-            <button type="button" id="submitAllDayofBtn" 
-                    class="primary-btn" 
-                    style="margin-top: 20px; width: 100%; padding: 10px; font-size: 16px;"
-                    onclick="saveAllDayofRatings()">
-                Submit All Ratings
-            </button>
-        `;
-    }
+    // if (dayofRatings.size > 0) {
+    //     html += `
+    //         <button type="button" id="submitAllDayofBtn" 
+    //                 class="primary-btn" 
+    //                 style="margin-top: 20px; width: 100%; padding: 10px; font-size: 16px;"
+    //                 onclick="saveAllDayofRatings()">
+    //             Submit All Ratings
+    //         </button>
+    //     `;
+    // }
     container.innerHTML = html;
 
 }
