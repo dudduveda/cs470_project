@@ -752,7 +752,7 @@ function renderMatchingList() {
                 <div class="match-content">
                     <h3>${restaurant}</h3>
                     <div style="margin: 10px 0;">
-                        <span class="cuisine-badge">${restaurant}</span>
+                        <span class="cuisine-badge">${cuisine}</span>
                         <span class="price-indicator">${getPriceSymbol(restaurant.price)}</span>
                     </div>
                     <div class="match-score">
