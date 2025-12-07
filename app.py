@@ -3,7 +3,7 @@ Full Stack App: Users & Restaurants with SQLite
 Run: python app.py
 Then open: http://localhost:5000
 """
-
+from enum import Enum
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import sqlite3
@@ -12,12 +12,25 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator
-
+from restaurants import initial_restaurants
+import math
 app = Flask(__name__)
-CORS(app)
 
+
+
+CORS(app)
+r_list = initial_restaurants()
 # Database configuration
 DB_PATH = 'app.db'
+
+class Util(Enum):
+    min_utility_maxing = 0
+    total_utility_maxing = 1
+    nash_welfare = 2
+
+# toggle between these
+ns_value = 1.2
+utility_scheme = Util.min_utility_maxing
 
 # ==================== Pydantic Models ====================
 
@@ -30,19 +43,67 @@ class RestaurantPreference(BaseModel):
     def validate_rating(cls, v):
         return round(v, 1)  # Round to 1 decimal place
 
+class CuisinePreference(BaseModel):
+    cuisine: str = Field(..., min_length=1, max_length=50)
+    rating: float = Field(..., ge=1.0, le=10.0, description="Rating from 1.0 to 10.0")
+    
+    @field_validator('rating')
+    @classmethod
+    def validate_rating(cls, v):
+        return round(v, 1)  # Round to 1 decimal place
+
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=1, max_length=50)
     preferences: Optional[List[RestaurantPreference]] = Field(default_factory=list)
+    cuisine_preferences: Optional[List[CuisinePreference]] = Field(default_factory=list)
 
 class RestaurantCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     cuisine: str = Field(..., min_length=1, max_length=50)
-    price: int = Field(..., ge=1, le=4, description="Price level from 1 ($) to 4 ($$)")
+    price: int = Field(..., ge=1, le=3, description="Price level from 1 ($) to 3 ($$)")
 
 class RestaurantUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     cuisine: Optional[str] = Field(None, min_length=1, max_length=50)
-    price: Optional[int] = Field(None, ge=1, le=4)
+    price: Optional[int] = Field(None, ge=1, le=3)
+
+class DayOfRating(BaseModel):
+    rating: float = Field(..., ge=1.0, le=10.0)
+    restaurant_id: Optional[int] = None
+    cuisine: Optional[str] = None
+
+    @field_validator("rating")
+    @classmethod
+    def round_rating(cls, v):
+        return round(v, 1)
+
+    @field_validator("restaurant_id", "cuisine", mode="after")
+    @classmethod
+    def validate_choice(cls, _, values):
+        r = values.get("restaurant_id")
+        c = values.get("cuisine")
+        if not r and not c:
+            raise ValueError("Must include restaurant_id OR cuisine")
+        if r and c:
+            raise ValueError("Cannot include both restaurant_id AND cuisine")
+        return values
+
+
+class DayOfRatingsBulk(BaseModel):
+    user_id: int
+    ratings: List[DayOfRating]
+
+    @field_validator("ratings")
+    @classmethod
+    def validate_max_three(cls, v):
+        if len(v) == 0:
+            raise ValueError("Must include at least 1 rating")
+        if len(v) > 3:
+            raise ValueError("Maximum of 3 ratings allowed")
+        return v
+
+class Matching(BaseModel):
+    user_ratings: List[DayOfRatingsBulk]
 
 # ==================== Database Layer ====================
 
@@ -76,7 +137,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 cuisine TEXT NOT NULL,
-                price INTEGER NOT NULL CHECK(price >= 1 AND price <= 4),
+                price INTEGER NOT NULL CHECK(price >= 1 AND price <= 3),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -95,6 +156,30 @@ def init_db():
             )
         ''')
         
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_cuisine_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                cuisine TEXT NOT NULL,
+                rating REAL NOT NULL CHECK(rating >= 1.0 AND rating <= 10.0),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, cuisine)
+            )
+        ''')
+
+        # conn.execute('''
+        #     CREATE TABLE IF NOT EXISTS day_of_ratings (
+        #         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        #         user_id INTEGER NOT NULL,
+        #         restaurant_id INTEGER,
+        #         cuisine TEXT,
+        #         rating REAL NOT NULL CHECK(rating >= 1.0 AND rating <= 10.0),
+        #         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        #     )
+        # ''')
+        
         # Check if restaurants table is empty and seed with initial data
         count = conn.execute('SELECT COUNT(*) FROM restaurants').fetchone()[0]
         if count == 0:
@@ -102,56 +187,12 @@ def init_db():
 
 def seed_restaurants(conn):
     """Seed the database with initial restaurants"""
-    initial_restaurants = [
-        # Italian
-        ("Mama Mia Trattoria", "Italian", 3),
-        ("Pizza Napoli", "Italian", 2),
-        ("Bella Vista", "Italian", 4),
-        
-        # Mexican
-        ("Taco Fiesta", "Mexican", 1),
-        ("El Mariachi", "Mexican", 2),
-        ("Casa Grande", "Mexican", 3),
-        
-        # Chinese
-        ("Golden Dragon", "Chinese", 2),
-        ("Szechuan Palace", "Chinese", 3),
-        ("Dim Sum House", "Chinese", 2),
-        
-        # Japanese
-        ("Sakura Sushi", "Japanese", 3),
-        ("Ramen Bowl", "Japanese", 2),
-        ("Tokyo Grill", "Japanese", 4),
-        
-        # American
-        ("The Burger Joint", "American", 2),
-        ("Steakhouse Prime", "American", 4),
-        ("Diner Deluxe", "American", 1),
-        
-        # Indian
-        ("Curry House", "Indian", 2),
-        ("Taj Mahal", "Indian", 3),
-        ("Bombay Spice", "Indian", 2),
-        
-        # Thai
-        ("Thai Basil", "Thai", 2),
-        ("Bangkok Street Food", "Thai", 1),
-        ("Royal Thai", "Thai", 3),
-        
-        # French
-        ("Le Petit Bistro", "French", 4),
-        ("Café Paris", "French", 3),
-        
-        # Mediterranean
-        ("Olive Garden Bistro", "Mediterranean", 3),
-        ("Greek Taverna", "Mediterranean", 2),
-    ]
-    
+
     conn.executemany(
         'INSERT INTO restaurants (name, cuisine, price) VALUES (?, ?, ?)',
-        initial_restaurants
+        r_list
     )
-    print(f"\n✅ Seeded database with {len(initial_restaurants)} restaurants")
+    print(f"\n✅ Seeded database with {len(r_list)} restaurants")
 
 # ==================== Frontend Route ====================
 
@@ -170,7 +211,8 @@ def users():
             users_list = []
             for row in rows:
                 user_dict = dict(row)
-                # Get preferences for this user
+                
+                # Get restaurant preferences for this user
                 prefs = conn.execute(
                     '''SELECT restaurant_id, rating 
                        FROM user_preferences 
@@ -181,6 +223,19 @@ def users():
                     {'restaurant_id': p['restaurant_id'], 'rating': p['rating']} 
                     for p in prefs
                 ]
+                
+                # Get cuisine preferences for this user
+                cuisine_prefs = conn.execute(
+                    '''SELECT cuisine, rating 
+                       FROM user_cuisine_preferences 
+                       WHERE user_id = ?''',
+                    (user_dict['id'],)
+                ).fetchall()
+                user_dict['cuisine_preferences'] = [
+                    {'cuisine': p['cuisine'], 'rating': p['rating']} 
+                    for p in cuisine_prefs
+                ]
+                
                 users_list.append(user_dict)
             return jsonify(users_list)
     
@@ -195,7 +250,7 @@ def users():
                 )
                 user_id = cursor.lastrowid
                 
-                # Insert preferences
+                # Insert restaurant preferences
                 if user_data.preferences:
                     for pref in user_data.preferences:
                         conn.execute(
@@ -204,10 +259,20 @@ def users():
                             (user_id, pref.restaurant_id, pref.rating)
                         )
                 
+                # Insert cuisine preferences
+                if user_data.cuisine_preferences:
+                    for pref in user_data.cuisine_preferences:
+                        conn.execute(
+                            '''INSERT INTO user_cuisine_preferences (user_id, cuisine, rating)
+                               VALUES (?, ?, ?)''',
+                            (user_id, pref.cuisine, pref.rating)
+                        )
+                
                 return jsonify({
                     'id': user_id, 
                     'message': 'User created',
-                    'preferences': [p.model_dump() for p in user_data.preferences]
+                    'preferences': [p.model_dump() for p in user_data.preferences],
+                    'cuisine_preferences': [p.model_dump() for p in user_data.cuisine_preferences]
                 }), 201
         except sqlite3.IntegrityError as e:
             return jsonify({'error': f'Username already exists: {str(e)}'}), 400
@@ -223,7 +288,8 @@ def user_detail(user_id):
             row = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
             if row:
                 user_dict = dict(row)
-                # Get preferences for this user
+                
+                # Get restaurant preferences for this user
                 prefs = conn.execute(
                     '''SELECT restaurant_id, rating 
                        FROM user_preferences 
@@ -234,6 +300,19 @@ def user_detail(user_id):
                     {'restaurant_id': p['restaurant_id'], 'rating': p['rating']} 
                     for p in prefs
                 ]
+                
+                # Get cuisine preferences for this user
+                cuisine_prefs = conn.execute(
+                    '''SELECT cuisine, rating 
+                       FROM user_cuisine_preferences 
+                       WHERE user_id = ?''',
+                    (user_id,)
+                ).fetchall()
+                user_dict['cuisine_preferences'] = [
+                    {'cuisine': p['cuisine'], 'rating': p['rating']} 
+                    for p in cuisine_prefs
+                ]
+                
                 return jsonify(user_dict)
             return jsonify({'error': 'User not found'}), 404
     
@@ -336,7 +415,135 @@ def search_restaurants():
 def health():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
+@app.route('/api/day-of-ratings/bulk', methods=['POST'])
+def save_dayof_ratings_bulk():
+    try:
+        data = DayOfRatingsBulk(**request.json)
+    except Exception as e:
+        return jsonify({"error": f"Validation error: {str(e)}"}), 400
+
+    with get_db() as conn:
+        # Check if user exists
+        row = conn.execute(
+            'SELECT id FROM users WHERE id = ?', 
+            (data.user_id,)
+        ).fetchone()
+
+        if not row:
+            return jsonify({"error": "User does not exist"}), 404
+
+        # ❗ Remove old day-of ratings for this user
+        conn.execute(
+            "DELETE FROM day_of_ratings WHERE user_id = ?", 
+            (data.user_id,)
+        )
+
+        # Insert new ones
+        for rating in data.ratings:
+            conn.execute('''
+                INSERT INTO day_of_ratings (user_id, restaurant_id, cuisine, rating)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                data.user_id,
+                rating.restaurant_id,
+                rating.cuisine,
+                rating.rating
+            ))
+
+    return jsonify({"message": "Day-of ratings saved"}), 200
+max_utility = 100
+
+# sigmoid like shape to explain the phenomena of extrema being more comparable
+def dayofrestupdate(rating):
+    return 2 / (1 + math.exp(-2 * (rating - 5.5)))
+def dayofcuisineupdate(rating):
+    return 2 / (1 + math.exp(-1 * (rating - 5.5)))
+
+# def user_utility(dayof):
+#     #max_utility tbd
+#     userId = dayof.user_id
+#     dayofratings = dayof.ratings
+#     dayofrests = {x.restaurant_id: x.rating for x in dayofratings if x.restaurant_id is not None}
+#     dayofcuisines = {x.cuisine: x.rating for x in dayofratings if x.cuisine is not None}
+#     if userId is None:
+#         return [max_utility for i in range(len(r_list))]
+#     with get_db() as conn:
+#         rests = conn.execute('''
+#             SELECT restaurant_id, user_id, rating 
+#             FROM user_preferences
+#             WHERE user_id = ?
+#             ORDER BY restaurant_id ASC
+#         ''',
+#         (userId)
+#         ).fetchall()
+#         cuisines = conn.execute('''
+#             SELECT cuisine, rating 
+#             FROM user_cuisine_preferences
+#             WHERE user_id = ?
+#             ORDER BY cuisine ASC
+#         ''', 
+#         (userId) 
+#         ).fetchall()
+#         cuisines = {cuisine: rating for (cuisine, rating) in cuisines}
+#         output = []
+#         restpointer = 0
+#         for i, rest in enumerate(r_list):
+#             value = None
+#             if i > rests[restpointer]["restaurant_id"]:
+#                 value = max(cuisines.get(x, 0.5) for x in rest[1].split(","))
+#                 output.append(value)
+#             elif i == rests[restpointer]["restaurant_id"]: 
+#                 value = rests[restpointer]["rating"]
+#                 restpointer += 1
+#             cuisinebenefit = max()
+
+#             value *= dayofrests.get(, 1)
+# @app.route('/api/matching', methods=["POST"])
+# def matching():
+#     try:
+#         data = Matching(**request.json)
+#     except Exception as e:
+#         return jsonify({"error": f"Validation error: {str(e)}"}), 400
+#     utilities = []
+#     for dayof in data.user_ratings:
+#         utilities.append(user_utility(dayof))
+#     # min utility maximizing
+#     if utility_scheme == Util.min_utility_maxing:
+#         ans = []
+#         for i in range(len(r_list)):
+#             worst = max_utility
+#             for utility in utilities:
+#                 worst = min(worst, utility[i])
+#             ans.append((i, worst))
+#         ans.sort(key=lambda x: x[1],reverse=True)
+#         return [i for (i, v) in ans]
+#     # total utility maximizing
+#     elif utility_scheme == Util.total_utility_maxing:
+#         ans = []
+#         for i in range(len(r_list)):
+#             total = 0
+#             for utility in utilities:
+#                 total += utility[i]
+#             ans.append((i, total))
+#         ans.sort(key=lambda x: x[1],reverse=True)
+#         return [i for (i, v) in ans]   
+#     elif utility_scheme == Util.nash_welfare:
+#         ans = []
+#         for i in range(len(r_list)):
+#             total = 1
+#             for utility in utilities:
+#                 total *= utility[i]
+#             ans.append((i, total))
+#         ans.sort(key=lambda x: x[1],reverse=True)
+#         return [i for (i, v) in ans]   
+    
+#     print("something bad happened, utility scheme inval")
+#     return []
+
+
 # ==================== Main ====================
+
+
 
 if __name__ == '__main__':
     init_db()
